@@ -1,0 +1,59 @@
+name: Build standalone HTML
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "apple-v2/**"
+      - "tools/build_standalone.py"
+      - ".github/workflows/build-standalone.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-standalone-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate standalone pages
+        run: python tools/build_standalone.py
+
+      - name: Validate generated files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find standalone -maxdepth 1 -name '*.html' | wc -l)" -ge 12
+          if grep -RInE '<link[^>]+styles\.css|<script[^>]+src=.*script\.js|@import' standalone/*.html; then
+            echo "External CSS or JavaScript dependency remains."
+            exit 1
+          fi
+
+      - name: Commit generated standalone pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add standalone
+          if git diff --cached --quiet; then
+            echo "Standalone pages are already up to date."
+            exit 0
+          fi
+          git commit -m "Build standalone HTML pages"
+          git push
